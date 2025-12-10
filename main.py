@@ -1,6 +1,6 @@
 import json
-from pathlib import Path
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
 
 
@@ -9,17 +9,13 @@ class RelationshipApp(tk.Tk):
 
     DEFAULT_BUTTON_WIDTH = 14
     MIN_BUTTON_WIDTH = 10
+    LIBRARY_DATA_FILE = Path(__file__).with_name("library_data.json")
 
     def __init__(self) -> None:
         super().__init__()
         self.title("文献关系图谱")
         self.geometry("900x600")
         self.minsize(800, 500)
-
-        self._data_file = Path("library_data.json")
-        self._library_data: list[dict[str, str]] = []
-        self._selected_title = tk.StringVar(value="")
-        self._library_title_var = tk.StringVar(value="")
 
         # Configure overall grid: top navigation row and content row.
         self.columnconfigure(0, weight=1)
@@ -29,9 +25,11 @@ class RelationshipApp(tk.Tk):
         self._style.theme_use("clam")
 
         self._current_theme = tk.StringVar(value="light")
-        self._apply_theme()
+        self._current_palette: dict[str, str] = {}
+        self._library_items: list[dict[str, str]] = []
+        self._library_widgets: dict[str, tk.Widget] = {}
 
-        self._library_controls: dict[str, tk.Widget | ttk.Widget] = {}
+        self._apply_theme()
         self._load_library_data()
 
         self._build_navigation()
@@ -114,89 +112,67 @@ class RelationshipApp(tk.Tk):
         return frame
 
     def _create_library(self, parent: ttk.Frame) -> ttk.Frame:
-        frame = ttk.Frame(parent, padding=12, style="Content.TFrame")
+        frame = ttk.Frame(parent, padding=10, style="Content.TFrame")
         frame.grid(row=0, column=0, sticky="nsew")
         frame.columnconfigure(0, weight=2)
         frame.columnconfigure(1, weight=3)
-        frame.rowconfigure(0, weight=1)
+        frame.rowconfigure(1, weight=1)
 
-        # Left column: controls and document list
-        left = ttk.Frame(frame, padding=(0, 0, 8, 0), style="Content.TFrame")
-        left.grid(row=0, column=0, sticky="nsew")
-        left.columnconfigure(0, weight=1)
-        left.rowconfigure(1, weight=1)
+        header = ttk.Label(frame, text="文献库", font=("Arial", 16, "bold"), style="Content.TLabel")
+        header.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
-        controls = ttk.Frame(left, padding=(0, 0, 0, 6), style="Content.TFrame")
+        left_panel = ttk.Frame(frame, padding=(0, 6, 6, 0), style="Content.TFrame")
+        left_panel.grid(row=1, column=0, sticky="nsew")
+        left_panel.columnconfigure(0, weight=1)
+        left_panel.rowconfigure(1, weight=1)
+
+        controls = ttk.Frame(left_panel, padding=(0, 0, 0, 6), style="Content.TFrame")
         controls.grid(row=0, column=0, sticky="ew")
         controls.columnconfigure(1, weight=1)
 
-        add_btn = ttk.Button(controls, text="添加", command=self._add_document, style="Nav.TButton")
-        add_btn.grid(row=0, column=0, padx=(0, 6))
+        add_button = ttk.Button(controls, text="添加", command=self._add_library_item, style="Nav.TButton")
+        add_button.grid(row=0, column=0, padx=(0, 4))
 
-        title_entry = ttk.Entry(controls, textvariable=self._library_title_var)
-        title_entry.grid(row=0, column=1, sticky="ew")
+        entry = tk.Entry(controls, width=24)
+        entry.grid(row=0, column=1, padx=4, sticky="ew")
 
-        del_btn = ttk.Button(controls, text="删除", command=self._delete_document, style="Nav.TButton")
-        del_btn.grid(row=0, column=2, padx=(6, 0))
+        delete_button = ttk.Button(controls, text="删除", command=self._delete_library_item, style="Nav.TButton")
+        delete_button.grid(row=0, column=2, padx=(4, 0))
 
-        list_container = ttk.Frame(left, style="Content.TFrame")
-        list_container.grid(row=1, column=0, sticky="nsew")
-        list_container.columnconfigure(0, weight=1)
-        list_container.rowconfigure(0, weight=1)
+        listbox = tk.Listbox(left_panel, exportselection=False)
+        listbox.grid(row=1, column=0, sticky="nsew")
+        listbox.bind("<<ListboxSelect>>", self._on_library_select)
 
-        listbox = tk.Listbox(
-            list_container,
-            exportselection=False,
-            activestyle="dotbox",
-            highlightthickness=1,
-            selectmode=tk.SINGLE,
+        right_panel = ttk.Frame(frame, padding=(6, 6, 0, 0), style="Content.TFrame")
+        right_panel.grid(row=1, column=1, sticky="nsew")
+        right_panel.columnconfigure(0, weight=1)
+        right_panel.rowconfigure(1, weight=1)
+
+        detail_label = ttk.Label(right_panel, text="文献笔记", font=("Arial", 13, "bold"), style="Content.TLabel")
+        detail_label.grid(row=0, column=0, sticky="w", pady=(0, 4))
+
+        note_text = tk.Text(right_panel, wrap=tk.WORD)
+        note_text.grid(row=1, column=0, sticky="nsew")
+
+        button_bar = ttk.Frame(right_panel, padding=(0, 6, 0, 0), style="Content.TFrame")
+        button_bar.grid(row=2, column=0, sticky="e")
+
+        clear_button = ttk.Button(button_bar, text="清空", command=self._clear_note, style="Nav.TButton")
+        clear_button.grid(row=0, column=0, padx=(0, 6))
+
+        save_button = ttk.Button(button_bar, text="保存", command=self._save_note, style="Nav.TButton")
+        save_button.grid(row=0, column=1)
+
+        self._library_widgets.update(
+            {
+                "entry": entry,
+                "listbox": listbox,
+                "note_text": note_text,
+            }
         )
-        listbox.grid(row=0, column=0, sticky="nsew")
-
-        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=listbox.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        listbox.configure(yscrollcommand=scrollbar.set)
-        listbox.bind("<<ListboxSelect>>", self._on_document_select)
-
-        # Right column: notes editor
-        right = ttk.Frame(frame, padding=(8, 0, 0, 0), style="Content.TFrame")
-        right.grid(row=0, column=1, sticky="nsew")
-        right.columnconfigure(0, weight=1)
-        right.rowconfigure(1, weight=1)
-
-        title_label = ttk.Label(
-            right,
-            textvariable=self._selected_title,
-            font=("Arial", 14, "bold"),
-            style="Content.TLabel",
-        )
-        title_label.grid(row=0, column=0, sticky="w", pady=(0, 6))
-
-        notes_text = tk.Text(
-            right,
-            wrap="word",
-            height=10,
-            highlightthickness=1,
-        )
-        notes_text.grid(row=1, column=0, sticky="nsew")
-
-        actions = ttk.Frame(right, padding=(0, 8, 0, 0), style="Content.TFrame")
-        actions.grid(row=2, column=0, sticky="e")
-
-        clear_btn = ttk.Button(actions, text="清空", command=lambda: self._clear_notes(notes_text), style="Nav.TButton")
-        clear_btn.grid(row=0, column=0, padx=(0, 6))
-
-        save_btn = ttk.Button(actions, text="保存", command=lambda: self._save_notes(notes_text), style="Nav.TButton")
-        save_btn.grid(row=0, column=1)
-
-        self._library_controls = {
-            "listbox": listbox,
-            "notes_text": notes_text,
-            "title_entry": title_entry,
-        }
 
         self._refresh_library_list()
-        self._apply_library_theme()
+        self._apply_theme_to_library()
         return frame
 
     def _switch_content(self, key: str) -> None:
@@ -240,6 +216,8 @@ class RelationshipApp(tk.Tk):
                 "border": "#334155",
             },
         }[theme]
+
+        self._current_palette = palette
 
         self.configure(bg=palette["background"])
 
@@ -285,142 +263,152 @@ class RelationshipApp(tk.Tk):
             padding=4,
         )
 
-        self._apply_library_theme()
+        self._apply_theme_to_library()
 
-    def _apply_library_theme(self) -> None:
-        if not self._library_controls:
+    def _apply_theme_to_library(self) -> None:
+        if not self._library_widgets:
             return
 
-        theme = self._current_theme.get()
-        palette = {
-            "light": {
-                "background": "#f5f7fa",
-                "surface": "#ffffff",
-                "foreground": "#1f2933",
-                "accent": "#2563eb",
-                "border": "#d7dde5",
-            },
-            "dark": {
-                "background": "#0f172a",
-                "surface": "#1f2937",
-                "foreground": "#e5e7eb",
-                "accent": "#60a5fa",
-                "border": "#334155",
-            },
-        }[theme]
+        palette = self._current_palette
+        entry = self._library_widgets.get("entry")
+        listbox = self._library_widgets.get("listbox")
+        note_text = self._library_widgets.get("note_text")
 
-        listbox = self._library_controls.get("listbox")
-        if isinstance(listbox, tk.Listbox):
+        if entry:
+            entry.configure(background=palette["surface"], foreground=palette["foreground"])
+        if listbox:
             listbox.configure(
-                bg=palette["surface"],
-                fg=palette["foreground"],
+                background=palette["surface"],
+                foreground=palette["foreground"],
                 selectbackground=palette["accent"],
                 selectforeground=palette["surface"],
+                borderwidth=1,
                 highlightbackground=palette["border"],
                 highlightcolor=palette["border"],
             )
-
-        notes_text = self._library_controls.get("notes_text")
-        if isinstance(notes_text, tk.Text):
-            notes_text.configure(
-                bg=palette["surface"],
-                fg=palette["foreground"],
-                insertbackground=palette["accent"],
+        if note_text:
+            note_text.configure(
+                background=palette["surface"],
+                foreground=palette["foreground"],
+                insertbackground=palette["foreground"],
+                borderwidth=1,
                 highlightbackground=palette["border"],
                 highlightcolor=palette["border"],
             )
 
     def _load_library_data(self) -> None:
-        if self._data_file.exists():
+        if self.LIBRARY_DATA_FILE.exists():
             try:
-                self._library_data = json.loads(self._data_file.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                self._library_data = []
+                with self.LIBRARY_DATA_FILE.open("r", encoding="utf-8") as file:
+                    data = json.load(file)
+                self._library_items = [
+                    {"title": item.get("title", ""), "note": item.get("note", "")}
+                    for item in data
+                    if isinstance(item, dict)
+                ]
+            except (json.JSONDecodeError, OSError):
+                self._library_items = []
+        else:
+            self._library_items = []
 
     def _persist_library_data(self) -> None:
-        self._data_file.write_text(json.dumps(self._library_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            with self.LIBRARY_DATA_FILE.open("w", encoding="utf-8") as file:
+                json.dump(self._library_items, file, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
 
     def _refresh_library_list(self) -> None:
-        listbox = self._library_controls.get("listbox")
-        if not isinstance(listbox, tk.Listbox):
+        listbox: tk.Listbox | None = self._library_widgets.get("listbox")  # type: ignore[assignment]
+        if listbox is None:
             return
         listbox.delete(0, tk.END)
-        for doc in self._library_data:
-            listbox.insert(tk.END, doc.get("title", ""))
+        for item in self._library_items:
+            listbox.insert(tk.END, item.get("title", ""))
 
-    def _add_document(self) -> None:
-        title = self._library_title_var.get().strip()
+    def _add_library_item(self) -> None:
+        entry: tk.Entry | None = self._library_widgets.get("entry")  # type: ignore[assignment]
+        listbox: tk.Listbox | None = self._library_widgets.get("listbox")  # type: ignore[assignment]
+        if entry is None or listbox is None:
+            return
+
+        title = entry.get().strip()
         if not title:
             return
 
-        for doc in self._library_data:
-            if doc.get("title") == title:
-                self._select_document_by_title(title)
-                return
-
-        self._library_data.append({"title": title, "notes": ""})
+        self._library_items.append({"title": title, "note": ""})
         self._persist_library_data()
-        self._library_title_var.set("")
         self._refresh_library_list()
-        self._select_document_by_title(title)
+        entry.delete(0, tk.END)
+        listbox.selection_clear(0, tk.END)
+        listbox.selection_set(tk.END)
+        self._show_selected_note(len(self._library_items) - 1)
 
-    def _delete_document(self) -> None:
-        listbox = self._library_controls.get("listbox")
-        if not isinstance(listbox, tk.Listbox):
+    def _delete_library_item(self) -> None:
+        listbox: tk.Listbox | None = self._library_widgets.get("listbox")  # type: ignore[assignment]
+        if listbox is None:
             return
         selection = listbox.curselection()
         if not selection:
             return
         index = selection[0]
-        del self._library_data[index]
-        self._persist_library_data()
-        self._refresh_library_list()
-        self._selected_title.set("")
-        notes_text = self._library_controls.get("notes_text")
-        if isinstance(notes_text, tk.Text):
-            notes_text.delete("1.0", tk.END)
+        if 0 <= index < len(self._library_items):
+            self._library_items.pop(index)
+            self._persist_library_data()
+            self._refresh_library_list()
+            listbox.selection_clear(0, tk.END)
+            self._clear_note_text()
 
-    def _on_document_select(self, event: tk.Event[tk.Listbox]) -> None:
-        widget = event.widget
-        if not isinstance(widget, tk.Listbox):
-            return
-        selection = widget.curselection()
+    def _on_library_select(self, event: tk.Event[tk.Listbox]) -> None:  # type: ignore[type-arg]
+        listbox: tk.Listbox = event.widget  # type: ignore[assignment]
+        selection = listbox.curselection()
         if not selection:
             return
         index = selection[0]
-        doc = self._library_data[index]
-        self._selected_title.set(doc.get("title", ""))
-        notes_text = self._library_controls.get("notes_text")
-        if isinstance(notes_text, tk.Text):
-            notes_text.delete("1.0", tk.END)
-            notes_text.insert("1.0", doc.get("notes", ""))
+        self._show_selected_note(index)
 
-    def _select_document_by_title(self, title: str) -> None:
-        listbox = self._library_controls.get("listbox")
-        if not isinstance(listbox, tk.Listbox):
+    def _show_selected_note(self, index: int) -> None:
+        if not (0 <= index < len(self._library_items)):
             return
-        for index, doc in enumerate(self._library_data):
-            if doc.get("title") == title:
-                listbox.selection_clear(0, tk.END)
-                listbox.selection_set(index)
-                listbox.see(index)
-                self._selected_title.set(title)
-                listbox.event_generate("<<ListboxSelect>>")
-                break
+        note_text: tk.Text | None = self._library_widgets.get("note_text")  # type: ignore[assignment]
+        if note_text is None:
+            return
+        self._clear_note_text()
+        note_text.insert("1.0", self._library_items[index].get("note", ""))
 
-    def _save_notes(self, widget: tk.Text) -> None:
-        listbox = self._library_controls.get("listbox")
-        if not isinstance(listbox, tk.Listbox):
+    def _clear_note_text(self) -> None:
+        note_text: tk.Text | None = self._library_widgets.get("note_text")  # type: ignore[assignment]
+        if note_text is None:
+            return
+        note_text.delete("1.0", tk.END)
+
+    def _save_note(self) -> None:
+        listbox: tk.Listbox | None = self._library_widgets.get("listbox")  # type: ignore[assignment]
+        note_text: tk.Text | None = self._library_widgets.get("note_text")  # type: ignore[assignment]
+        if listbox is None or note_text is None:
             return
         selection = listbox.curselection()
         if not selection:
             return
         index = selection[0]
-        self._library_data[index]["notes"] = widget.get("1.0", tk.END).rstrip()
+        if not (0 <= index < len(self._library_items)):
+            return
+        self._library_items[index]["note"] = note_text.get("1.0", tk.END).strip()
         self._persist_library_data()
 
-    def _clear_notes(self, widget: tk.Text) -> None:
-        widget.delete("1.0", tk.END)
+    def _clear_note(self) -> None:
+        listbox: tk.Listbox | None = self._library_widgets.get("listbox")  # type: ignore[assignment]
+        if listbox is None:
+            return
+        selection = listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        if not (0 <= index < len(self._library_items)):
+            return
+        self._library_items[index]["note"] = ""
+        self._persist_library_data()
+        self._clear_note_text()
 
 
 def main() -> None:

@@ -4,8 +4,9 @@ A starter GUI skeleton for building a Windows executable that visualizes relatio
 
 ## Features
 - Two-part layout with a left-aligned navigation bar ("文献库", "树状关系", "网状关系", "设置", "其它功能") using fixed-width buttons for consistent spacing.
-- Bottom content area uses stacked placeholder pages for easy expansion.
-- A settings page includes a light/dark theme toggle that recolors the entire UI.
+- 文献库页面提供左右分栏（2:3）视图：左侧含“添加/删除”与文献列表，右侧展示选中文献的详细笔记。
+- 文献列表与笔记内容持久化到 `library_data.json`，允许添加、删除与保存笔记，并提供清空文本的快捷操作。
+- Settings 页面包含全局浅/深色主题切换，自动更新各控件配色。
 - Built with Python `tkinter` to simplify packaging into a Windows `.exe` via tools such as `pyinstaller`.
 
 ## Getting Started
